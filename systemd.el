@@ -84,14 +84,26 @@
   '("Unit" "Install" "Service")
   "Configuration sections for systemd 244.")
 
-(defconst systemd-unit-directives
-  (eval-when-compile
+(defun systemd--load-directives (name)
+  (let* ((name (concat name "-directives.txt"))
+         (path (cond
+                (load-file-name (expand-file-name name (file-name-directory
+                                                        load-file-name)))
+                ((file-exists-p name) name)
+                (t (when-let* ((lib-file (locate-library "systemd"))
+                               (lib-dir  (file-name-directory lib-file))
+                               (path     (expand-file-name name lib-dir)))
+                     path)))))
+    (unless path
+      (signal 'file-missing `("Opening directives file"
+                              "File missing"
+                              ,name)))
     (with-temp-buffer
-      (insert-file-contents
-       (let ((f "unit-directives.txt"))
-         (if (null load-file-name) f
-           (expand-file-name f (file-name-directory load-file-name)))))
-      (split-string (buffer-string))))
+      (insert-file-contents path)
+      (split-string (buffer-string)))))
+
+(defconst systemd-unit-directives
+  (systemd--load-directives "unit")
   "Configuration directives for systemd.")
 
 (defconst systemd-network-sections
@@ -99,18 +111,12 @@
     "GENEVE" "L2TP" "L2TPsession" "MACsec" "FooOverUDP"
     "Tunnel" "Peer" "Tun" "Tap" "Bond" "Network" "Address" "Route" "DHCP"
     "Neighbor" "IPv6AddressLabel" "RoutingPolicyRule" "NextHop" "DHCPv4"
-    "DHCPv6" "IPv6AcceptRA" "DHCPServer" "IPv6Prefix" "CAN" 
+    "DHCPv6" "IPv6AcceptRA" "DHCPServer" "IPv6Prefix" "CAN"
     "Bridge" "BridgeFDB" "BridgeVLAN" "VXCAN" "WireGuard" "WireGuardPeer")
   "Network configuration sections for systemd 244 (not exhaustive).")
 
 (defconst systemd-network-directives
-  (eval-when-compile
-    (with-temp-buffer
-      (insert-file-contents
-       (let ((f "network-directives.txt"))
-         (if (null load-file-name) f
-           (expand-file-name f (file-name-directory load-file-name)))))
-      (split-string (buffer-string))))
+  (systemd--load-directives "network")
   "Network configuration directives for systemd.")
 
 (defconst systemd-nspawn-sections
@@ -118,19 +124,13 @@
   "Namespace container configuration sections for systemd 244.")
 
 (defconst systemd-nspawn-directives
-  (eval-when-compile
-    (with-temp-buffer
-      (insert-file-contents
-       (let ((f "nspawn-directives.txt"))
-         (if (null load-file-name) f
-           (expand-file-name f (file-name-directory load-file-name)))))
-      (split-string (buffer-string))))
+  (systemd--load-directives "nspawn")
   "Namespace container configuration directives for systemd.")
 
 ;;;###autoload
 (defconst systemd-autoload-regexp
   (rx (+? (any "a-zA-Z0-9-_.@\\")) "."
-      (or "automount" "busname" "mount" "service" "slice"
+      (or "automount" "busname" "mount" "path" "service" "slice"
           "socket" "swap" "target" "timer" "link" "netdev" "network")
       string-end)
   "Regexp for file buffers in which to autoload `systemd-mode'.")
@@ -139,7 +139,7 @@
 (defconst systemd-tempfn-autoload-regexp
   (rx ".#"
       (or (and (+? (any "a-zA-Z0-9-_.@\\")) "."
-               (or "automount" "busname" "mount" "service" "slice"
+               (or "automount" "busname" "mount" "path" "service" "slice"
                    "socket" "swap" "target" "timer" "link" "netdev" "network"))
           "override.conf")
       (= 16 (char hex-digit)) string-end)
@@ -235,7 +235,8 @@ file, defaulting to the link under point, if any."
   (let ((bounds (bounds-of-thing-at-point 'symbol)))
     (list (or (car bounds) (point))
           (or (cdr bounds) (point))
-          (completion-table-dynamic #'systemd-completion-table))))
+          (completion-table-dynamic #'systemd-completion-table)
+          :exclusive 'no)))
 
 (defun systemd-company-backend (command &optional arg &rest _ignored)
   "Backend for `company-mode' in `systemd-mode' buffers."
